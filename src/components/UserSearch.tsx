@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import React, { useEffect, useState } from "react";
 
-import { fetchGithubUser } from "../api/github";
+import { useDebounce } from "use-debounce";
+import { fetchGithubUser, searchGithubUser } from "../api/github";
 import { RecentSearches } from "./RecentSearches";
+import { SuggestionDropdown } from "./SuggestionDropdown";
 import { UserCard } from "./UserCard";
 
 export const UserSearch = () => {
@@ -12,15 +14,25 @@ export const UserSearch = () => {
     const stored = localStorage.getItem("recentUsers");
     return stored ? JSON.parse(stored) : [];
   });
+  const [debouncedUsername] = useDebounce(username, 300);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("recentUsers", JSON.stringify(recentUsers));
   }, [recentUsers]);
 
-  const { data, isLoading, isError, error } = useQuery({
+  // Query to fetch specific user
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["users", submittedUsername],
     queryFn: () => fetchGithubUser(submittedUsername),
     enabled: !!submittedUsername,
+  });
+
+  // Query to fetch suggestions for user fearch
+  const { data: suggestions } = useQuery({
+    queryKey: ["guthub-user-suggestions", debouncedUsername],
+    queryFn: () => searchGithubUser(debouncedUsername),
+    enabled: debouncedUsername.length > 1,
   });
 
   const handleSubmit = (e: React.ChangeEvent) => {
@@ -41,13 +53,42 @@ export const UserSearch = () => {
   return (
     <React.Fragment>
       <form onSubmit={handleSubmit} className="form">
-        <input
-          type="text"
-          placeholder="Enter Github Username"
-          value={username}
-          name="username"
-          onChange={(e) => setUsername(e.currentTarget.value)}
-        />
+        <div className="dropdown-wrapper">
+          <input
+            type="text"
+            placeholder="Enter Github Username"
+            value={username}
+            name="username"
+            onChange={(e) => {
+              const val = e.currentTarget.value;
+              setUsername(val);
+              setShowSuggestions(val.trim().length > 1);
+            }}
+          />
+
+          {showSuggestions && suggestions && suggestions?.length > 0 && (
+            <SuggestionDropdown
+              suggestions={suggestions}
+              show={showSuggestions}
+              onSelect={(selectedUsername) => {
+                setUsername(selectedUsername);
+                setShowSuggestions(false);
+                setRecentUsers((prev) =>
+                  [
+                    selectedUsername,
+                    ...prev.filter((username) => username !== selectedUsername),
+                  ].slice(0, 5),
+                );
+
+                if (submittedUsername !== selectedUsername) {
+                  setSubmittedUsername(selectedUsername);
+                } else {
+                  refetch();
+                }
+              }}
+            />
+          )}
+        </div>
         <button type="submit">Search</button>
       </form>
 
